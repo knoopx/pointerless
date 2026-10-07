@@ -1,72 +1,95 @@
-# wl-kbptr
+# pointerless
 
-`wl-kbptr` &mdash; short for Wayland Keyboard Pointer &mdash; is a utility to help move the mouse pointer with the keyboard.
+`pointerless` is a utility to move the mouse pointer with the keyboard on
+Wayland. It renders a full-screen overlay on top of the compositor, lets you
+pick a target area by typing a short label, and then drives a virtual pointer
+to that target.
 
-See [Supported compositors](#supported-compositors) section for compatibility.
+See the [Supported compositors](#supported-compositors) section for
+compatibility.
 
-## Modes
+## How it works
 
-To enable to select a target and click, it has four different modes:
-- [`floating`](#floating-mode) &mdash; which uses arbitrary areas either given by the user or detected,
-- [`tile`](#tile-mode) &mdash; which uses a grid to select areas,
-- [`bisect`](#bisect-mode) &mdash; which enables to bisect an area,
-- [`split`](#split-mode) &mdash; which enables to successively split an area,
-- [`click`](#click-mode) &mdash; which triggers a click in the middle of an area.
+`pointerless` connects to the compositor, creates a full-screen overlay
+(a `wlr-layer-shell` surface in the overlay layer) with keyboard interactivity,
+and then collects a set of *selectable areas*. Each area is rendered as a
+labeled region, and you pick a target by typing:
 
-These are set with the `modes` configuration field and can be chained, e.g. `wl-kbptr -o modes=tile,bisect`.
+1. **Areas** &mdash; the regions you can point at. The screen is captured
+   with
+   [`wlr-screencopy-unstable-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1)
+   (supported only by some compositors &mdash; see [Supported
+   compositors](#supported-compositors)) and a YOLO GUI detector &mdash; the
+   [Salesforce GPA-GUI-Detector](https://huggingface.co/salesforce/GPA-GUI-Detector)
+   YOLOv8 model running via [NCNN](https://github.com/Tencent/ncnn) &mdash;
+   finds UI elements (icons, buttons, input fields) which become the areas.
+2. **Labels** &mdash; each area gets a label from a fixed alphabet
+   (`general.label_symbols`, `a`&ndash;`z` by default). With 26 areas or
+   fewer a single character is enough; with more areas the labels grow to two
+   or more characters (base-26 counting, like a spreadsheet column).
+3. **Selection** &mdash; type the label characters of the area you want. The
+   overlay highlights the matching area as you type; `Backspace` removes the
+   last character and widens the match again; `Escape` cancels and exits.
+4. **Action** &mdash; once the full label is entered, `pointerless` moves a
+   virtual pointer ([`wlr-virtual-pointer-unstable-v1`](https://wayland.app/protocols/wlr-virtual-pointer-unstable-v1))
+   to the center of the selected area. The default action is a move only; use
+   `--drag` to perform a click-and-drag between two areas (see below).
 
-Note that if you make a mistake &mdash; e.g. select the wrong area &mdash; you can always go back on step by pressing the `Backspace` key. This even works between modes.
+The selection is printed to standard output as `WxH+X+Y +OX+OY C` &mdash; the
+selected area, the offset of its output in the global coordinate space, and
+the click type (`l` left, `m` middle, `r` right, `d` drag, `n` no click).
+With `--only-print` the pointer is not moved at all &mdash; useful on
+compositors without virtual-pointer support.
 
-### Floating mode
-[Floating Mode Demo](https://github.com/user-attachments/assets/1598128b-e03b-4d06-b47a-bc8a0021f4da)
+The selection keys default to the home row of your keyboard layout
+(`asdfjklmghb` on QWERTY) and can be overridden with `general.home_row_keys`.
 
-The `floating` mode uses arbitrary selection areas that can be passed by the user through the standard input. Each input line represents an area defined with the `wxh+x+y` format.
+### Detection performance
 
-#### Auto-detection
-The areas can also be automatically detected with `mode_floating.source` configuration set to `detect`, e.g. `wl-kbptr -o modes=floating,click -o mode_floating.source=detect`.
+`detect` runs the YOLO detector once per trigger (when you enter detect
+mode), not on every frame. On CPU via NCNN the bundled model loads in ~30 ms
+(one-time) and each detection takes ~90 ms (p50) to ~95 ms (p95) on a
+640&times;640 input, independent of screen resolution &mdash; so expect roughly a
+tenth of a second of latency when a detect-mode run starts.
 
-This requires the `wl-kbptr` binary to be built with the `opencv` feature and the compositor to support the [`wlr-screencopy-unstable-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1) protocol &mdash; see the [supported compositors](#supported-compositors) section and [build instructions](#from-sources) for details. Whilst it doesn't noticeably change the size of the program itself, OpenCV is a 100 MB+ dependency which is not ideal if you want a very small system which is why this is an optional feature.
+### Drag flag
 
-Most distributions will package the program with the option enabled. If not, they will usually provide two packages. You can check if the binary you have has been built with it with `wl-kbptr --version` &mdash; it should print `opencv` if supported.
+The `--drag` flag (or `-d`) changes the action to a click-and-drag between two
+selected positions. It requires **two selections**:
 
-### Tile mode
-[Tile Mode Demo](https://github.com/user-attachments/assets/d8c9c8dc-2733-4835-9d82-d0f5b093c382)
+1. **Start**: the first selection's left-center is stored as the drag start
+   point. A marker (shape, size and color configurable via the `mode_drag`
+   section) is drawn at that position and the selection resets so you can pick
+   again.
+2. **End**: the second selection's right-center becomes the drag end point.
+   The pointer then presses and holds the left button at the start, moves to
+   the end, and releases.
 
-The `tile` mode displays a grid. To select an area, simply type the label associated with the tile you want to select.
+This makes it useful for selecting text (start at word/line beginning, end at
+word/line end) or dragging UI elements.
 
-### Bisect mode
-[Bisect Mode Demo](https://github.com/user-attachments/assets/8f8f7fb4-1bb9-4180-9eda-78ee1ff14181)
+## Command line
 
-The `bisect` mode enables to bisect a given area. At any point the cursor can be moved at the location marked by the red marker by pressing `Enter` or `Space`.
+```
+pointerless [OPTION...]
 
-A left, right and middle click can be made by pressing the `g`, `h` and `b` keys respectively on a QWERTY keyboard layout. Note that other layout will use the same keys positions, e.g. `i`, `d`, and `x` with a Dvorak keyboard layout.
-
-### Split mode
-[Split Mode Demo](https://github.com/user-attachments/assets/760fa154-ce50-47b4-8f9a-26c5ac79a55b)
-
-The `split` mode enables to successively split an area with the arrow keys.
-
-Just like the `bisect` mode, a left, right and middle click can be made by pressing the `g`, `h` and `b` keys respectively on a QWERTY keyboard layout.
-
-### Click mode
-
-The `click` mode simply triggers a click in the middle of the selection area.
-
-## Drag flag
-
-The `--drag` flag (or `-d`) changes the action from a single click to a click-and-drag between two selected positions. It is designed to be used with any mode chain and requires **two selections**:
-
-1. **Start**: the first selection's left-center is stored as the drag start point. A marker is drawn at that position and the selection resets so you can pick again.
-2. **End**: the second selection's right-center becomes the drag end point. The pointer then presses and holds the left button at the start, moves to the end, and releases.
-
-This makes it useful for selecting text (start at word/line beginning, end at word/line end) or dragging UI elements.
+ -h, --help          show this help
+ --help-config       show help on configuration
+ -v, --version       show version
+ -c, --config=FILE   use given configuration file
+ -r, --restrict=AREA restrict to given area (wxh+x+y)
+ -o, --option        set configuration option
+ -O, --output        specify display output to use
+ -p, --only-print    only print, don't move the cursor or click
+ -d, --drag          perform a click-and-drag between two selections
+```
 
 ## Supported compositors
 
-For `wl-kbptr` to work, it requires the following protocols:
+For `pointerless` to work, it requires the following protocols:
  - [`wlr-layer-shell-unstable-v1`](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) for the program to display on top,
  - [`wlr-virtual-pointer-unstable-v1`](https://wayland.app/protocols/wlr-virtual-pointer-unstable-v1) to control the mouse pointer,
- - and [`wlr-screencopy-unstable-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1) (optional) to capture the screen for target detection in the `floating` mode.
+ - [`wlr-screencopy-unstable-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1) to capture the screen for target detection.
 
 Here are the compositors with which it has been tested:
 
@@ -77,47 +100,59 @@ Here are the compositors with which it has been tested:
 | [niri](https://github.com/YaLTeR/niri) | ✅ | - |
 | [dwl](https://codeberg.org/dwl/dwl) | ✅ | - |
 | [labwc](https://labwc.github.io) | ✅ | - |
-| [Wayfire](https://wayfire.org) | ✅ | The pointer doesn't move to the right location with multiple display outputs. See [#56](https://github.com/moverest/wl-kbptr/issues/56#issuecomment-3087922040). |
-| [KWin](https://github.com/KDE/kwin) | ❗ | The compositor doesn't support the [`wlr-virtual-pointer-unstable-v1`](https://wayland.app/protocols/wlr-virtual-pointer-unstable-v1) and [`wlr-screencopy-unstable-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1) protocols. It can still work with the `--print-only` option and the mouse pointer can then be moved with `ydotool` or similar. |
+| [Wayfire](https://wayfire.org) | ✅ | The pointer doesn't move to the right location with multiple display outputs. See [#56](https://github.com/moverest/pointerless/issues/56#issuecomment-3087922040). |
+| [KWin](https://github.com/KDE/kwin) | ❗ | The compositor doesn't support the [`wlr-virtual-pointer-unstable-v1`](https://wayland.app/protocols/wlr-virtual-pointer-unstable-v1) and [`wlr-screencopy-unstable-v1`](https://wayland.app/protocols/wlr-screencopy-unstable-v1) protocols. It can still work with the `--only-print` option and the mouse pointer can then be moved with `ydotool` or similar. |
 | [Mutter](https://mutter.gnome.org) | ❌ | The compositor doesn't support any of the required protocols. |
 
 ## Installation
 
 ### Arch Linux
 
-If you are using Arch Linux, you can install the [`wl-kbptr` AUR package](https://aur.archlinux.org/packages/wl-kbptr).
+If you are using Arch Linux, you can install the [`pointerless` AUR package](https://aur.archlinux.org/packages/pointerless).
 
 Recommended way to build and install the package directly from the AUR (gets all required files):
 ```bash
-git clone https://aur.archlinux.org/wl-kbptr.git
-cd wl-kbptr
+git clone https://aur.archlinux.org/pointerless.git
+cd pointerless
 makepkg -si
 ```
 
 Alternatively, if you only want the `PKGBUILD`:
 ```bash
-curl -L 'https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=wl-kbptr' -o PKGBUILD
+curl -L 'https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=pointerless' -o PKGBUILD
 makepkg -si
 ```
 
-### NixOS
+### Nix
 
-If you are using NixOS, you can install the [`wl-kbptr` package](https://search.nixos.org/packages?query=wl-kbptr). Nix can also be used to install `wl-kbptr` on other distributions.
+`pointerless` is not in nixpkgs. Build and install it from the project's
+Nix flake (works on NixOS and any other distribution with Nix):
+
+```bash
+nix profile install github:knoopx/pointerless#pointerless
+```
+
+The flake also provides a development shell with all build dependencies
+(wayland, cairo, xkbcommon, NCNN):
+
+```bash
+nix develop github:knoopx/pointerless
+```
 
 ### Chimera Linux
 
-If you are using Chimera Linux, you can install the [`wl-kbptr` package](https://pkgs.chimera-linux.org/package/current/contrib/x86_64/wl-kbptr) which is available in the [contrib repository](https://chimera-linux.org/docs/apk#repositories).
+If you are using Chimera Linux, you can install the [`pointerless` package](https://pkgs.chimera-linux.org/package/current/contrib/x86_64/pointerless) which is available in the [contrib repository](https://chimera-linux.org/docs/apk#repositories).
 
 ```bash
 apk add chimera-repo-contrib
-apk add wl-kbptr
+apk add pointerless
 ```
 ### Fedora
 
-If you are using Fedora, you can install the [`wl-kbptr` package](https://src.fedoraproject.org/rpms/wl-kbptr) which is available in the official repository.
+If you are using Fedora, you can install the [`pointerless` package](https://src.fedoraproject.org/rpms/pointerless) which is available in the official repository.
 
 ```bash
-dnf in wl-kbptr
+dnf in pointerless
 ```
 
 ### From sources
@@ -129,12 +164,11 @@ meson setup build --buildtype=release
 meson compile -C build
 ```
 
-If you want to build the target detection feature (see [floating mode](#floating-mode)), you need to enable the `opencv` feature:
-
-```bash
-meson setup build --buildtype=release -Dopencv=enabled
-meson compile -C build
-```
+The [NCNN](https://github.com/Tencent/ncnn) library used by the GUI detector
+is a required system dependency; the Nix devShell provided by `flake.nix`
+ships the nixpkgs `ncnn` package, and on other systems install it from your
+distribution's package manager. The model files are installed with the
+package.
 
 Then install with:
 
@@ -148,8 +182,8 @@ meson install -C build
 
 ```
 mode Mouse {
-    bindsym a mode default, exec 'wl-kbptr-sway-active-win; swaymsg mode Mouse'
-    bindsym Shift+a mode default, exec 'wl-kbptr; swaymsg mode Mouse'
+    bindsym a mode default, exec 'pointerless-sway-active-win; swaymsg mode Mouse'
+    bindsym Shift+a mode default, exec 'pointerless; swaymsg mode Mouse'
 
     # Mouse move
     bindsym h seat seat0 cursor move -15 0
@@ -172,7 +206,7 @@ mode Mouse {
     bindsym Escape mode default
 }
 
-bindsym $mod+g exec wl-kbptr-sway-active-win -o modes=floating','click -o mode_floating.source=detect
+bindsym $mod+g exec pointerless-sway-active-win
 bindsym $mod+Shift+g mode Mouse
 ```
 
@@ -183,7 +217,7 @@ bindsym $mod+Shift+g mode Mouse
 submap=cursor
 
 # Jump cursor to a position
-bind=,a,exec,hyprctl dispatch submap reset && wl-kbptr && hyprctl dispatch submap cursor
+bind=,a,exec,hyprctl dispatch submap reset && pointerless && hyprctl dispatch submap cursor
 
 # Cursor movement
 binde=,j,exec,wlrctl pointer move 0 10
@@ -219,7 +253,12 @@ bind=$mainMod,g,exec,hyprctl keyword cursor:inactive_timeout 0; hyprctl keyword 
 
 ## Configuration
 
-`wl-kbptr` can be configured with a configuration file. See [`config.example`](./config.example) for an example and run `wl-kbptr --help-config` for help.
+`pointerless` can be configured with a configuration file. The file is loaded
+from `$XDG_CONFIG_HOME/pointerless/config` (or `$HOME/.config/pointerless/config`
+when `XDG_CONFIG_HOME` is not set) unless a file is passed with `-c`. See
+[`config.example`](./config.example) for an example and run
+`pointerless --help-config` for help. Individual options can also be set on
+the command line with `-o section.option=value`.
 
 ## Dependencies
 
@@ -227,10 +266,8 @@ bind=$mainMod,g,exec,hyprctl keyword cursor:inactive_timeout 0; hyprctl keyword 
 - [`cairo`](https://cairographics.org)
 - [`wayland`](https://wayland.freedesktop.org)
 - [`wayland-protocols`](https://gitlab.freedesktop.org/wayland/wayland-protocols)
-- With the `opencv` feature enabled:
-  - C++ compiler
-  - [`OpenCV`](https://opencv.org)
-  - [`Pixman`](https://www.pixman.org)
+- C++ compiler
+- [`NCNN`](https://github.com/Tencent/ncnn) (GUI detector)
 
 
 ## License

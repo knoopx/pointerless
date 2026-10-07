@@ -7,19 +7,15 @@
 
 #include <stdint.h>
 
-struct general_config {
-    char  **home_row_keys;
-    char   *modes;
-    uint8_t cancellation_status_code;
-};
-
 struct relative_font_size {
     double proportion;
     double min;
     double max;
 };
 
-struct mode_tile_config {
+struct general_config {
+    char  **home_row_keys;
+    uint8_t cancellation_status_code;
     uint32_t                  label_color;
     uint32_t                  label_select_color;
     uint32_t                  unselectable_bg_color;
@@ -28,63 +24,16 @@ struct mode_tile_config {
     char                     *label_font_family;
     struct relative_font_size label_font_size;
     char                     *label_symbols;
-};
-
-enum floating_mode_source {
-    FLOATING_MODE_SOURCE_STDIN,
-    FLOATING_MODE_SOURCE_DETECT,
-};
-
-struct mode_floating_config {
-    enum floating_mode_source source;
-    uint32_t                  label_color;
-    uint32_t                  label_select_color;
-    uint32_t                  unselectable_bg_color;
-    uint32_t                  selectable_bg_color;
-    uint32_t                  selectable_border_color;
-    char                     *label_font_family;
-    struct relative_font_size label_font_size;
-    char                     *label_symbols;
-};
-
-struct mode_bisect_config {
-    uint32_t label_color;
-    double   label_font_size;
-    char    *label_font_family;
-    double   label_padding;
-
-    double  pointer_size;
-    int32_t pointer_color;
-
-    uint32_t unselectable_bg_color;
-    uint32_t even_area_bg_color;
-    uint32_t even_area_border_color;
-    uint32_t odd_area_bg_color;
-    uint32_t odd_area_border_color;
-
-    uint32_t history_border_color;
-};
-
-struct mode_split_config {
-    double  pointer_size;
-    int32_t pointer_color;
-
-    uint32_t bg_color;
-    uint32_t area_bg_color;
-    uint32_t vertical_color;
-    uint32_t horizontal_color;
-
-    uint32_t history_border_color;
-};
-
-struct mode_click_config {
-    enum click button;
 };
 
 enum drag_marker_shape {
     DRAG_MARKER_CIRCLE,
     DRAG_MARKER_CARET,
     DRAG_MARKER_RECTANGLE,
+};
+
+struct mode_click_config {
+    enum click button;
 };
 
 struct mode_drag_config {
@@ -94,13 +43,9 @@ struct mode_drag_config {
 };
 
 struct config {
-    struct general_config       general;
-    struct mode_tile_config     mode_tile;
-    struct mode_floating_config mode_floating;
-    struct mode_bisect_config   mode_bisect;
-    struct mode_split_config    mode_split;
-    struct mode_click_config    mode_click;
-    struct mode_drag_config     mode_drag;
+    struct general_config   general;
+    struct mode_click_config mode_click;
+    struct mode_drag_config  mode_drag;
 };
 
 /**
@@ -148,7 +93,7 @@ int config_loader_load_field(
 
 /**
  * `config_loader_load_cli_param` loads a configuration value from a CLI
- * parameter value, e.g. `mode_bisect.label_color=#66666666`.
+ * parameter value, e.g. `general.label_color=#66666666`.
  */
 int config_loader_load_cli_param(struct config_loader *loader, char *value);
 

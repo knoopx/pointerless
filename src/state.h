@@ -14,6 +14,7 @@
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 
+#include <cairo.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <wayland-client.h>
@@ -27,58 +28,6 @@
 #define HOME_ROW_LEFT_CLICK   8
 #define HOME_ROW_RIGHT_CLICK  9
 #define HOME_ROW_MIDDLE_CLICK 10
-
-// This should cover a initial maximum area with a width and height of 65536
-// pixels.
-#define BISECT_MAX_HISTORY 16
-
-// Split history of up to a resolution of 65536x65536 assuming equal number of
-// divisions each way.
-#define SPLIT_MAX_HISTORY 32
-
-#define MAX_NUM_MODES   3
-#define NO_MODE_ENTERED -1
-
-struct mode_interface;
-
-struct tile_mode_state {
-    struct rect area;
-
-    int sub_area_rows;
-    int sub_area_width;
-    int sub_area_width_off;
-
-    int sub_area_columns;
-    int sub_area_height;
-    int sub_area_height_off;
-
-    label_selection_t *label_selection;
-    label_symbols_t   *label_symbols;
-
-    cairo_font_face_t *label_font_face;
-};
-
-struct floating_mode_state {
-    struct rect *areas;
-    int          num_areas;
-
-    label_selection_t *label_selection;
-    label_symbols_t   *label_symbols;
-
-    cairo_font_face_t *label_font_face;
-};
-
-struct bisect_mode_state {
-    struct rect areas[BISECT_MAX_HISTORY];
-    int         current;
-
-    cairo_font_face_t *label_font_face;
-};
-
-struct split_mode_state {
-    struct rect areas[SPLIT_MAX_HISTORY];
-    int         current;
-};
 
 struct output {
     struct wl_list           link; // type: struct output
@@ -117,11 +66,9 @@ struct state {
     struct surface_buffer_pool              surface_buffer_pool;
     struct wl_surface                      *wl_surface;
     struct wl_callback                     *wl_surface_callback;
-    struct zwlr_layer_surface_v1           *wl_layer_surface;
-    bool                                    surface_configured;
-#if OPENCV_ENABLED
+    struct zwlr_layer_surface_v1 *wl_layer_surface;
+    bool                          surface_configured;
     struct zwlr_screencopy_manager_v1 *wl_screencopy_manager;
-#endif
     struct zxdg_output_manager_v1 *xdg_output_manager;
     struct wl_list                 outputs;
     struct wl_list                 seats;
@@ -134,14 +81,19 @@ struct state {
     char                           home_row_buffer[HOME_ROW_BUFFER_LEN];
     char                         **home_row;
     struct rect                    result;
-    struct mode_interface         *mode_interfaces[MAX_NUM_MODES];
-    void                          *mode_states[MAX_NUM_MODES];
-    int                            current_mode;
     enum click                     click;
     bool                           drag;
     int32_t                        drag_start_x;
     int32_t                        drag_start_y;
     int                            drag_phase;
+
+    // Floating selector state.
+    bool                           floating_entered;
+    struct rect                   *areas;
+    int                             num_areas;
+    label_selection_t             *label_selection;
+    label_symbols_t               *label_symbols;
+    cairo_font_face_t             *label_font_face;
 };
 
 #endif

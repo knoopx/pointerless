@@ -197,12 +197,9 @@ static int parse_home_row_keys(void *dest, char *value) {
     for (int i = 0; i < HOME_ROW_LEN_WITH_BTN; i++) {
         if (*c == 0) {
             LOG_ERR("Could not parse home row keys. Not enough characters.");
+            LOG_ERR("Exactly 11 characters are required.");
             LOG_ERR(
-                "Exactly 11 are required. The first 8 are used to select "
-                "the sub-areas in the bisect mode."
-            );
-            LOG_ERR(
-                "The next three characters are used for left, right and "
+                "The last three characters are used for left, right and "
                 "middle click respectively."
             );
             goto err;
@@ -254,25 +251,6 @@ err:
 
 static int parse_str(void *dest, char *value) {
     *((char **)dest) = strdup(value);
-    return 0;
-}
-
-static int parse_floating_mode_source_value(void *dest, char *value) {
-    enum floating_mode_source *out = dest;
-    if (strcmp(value, "stdin") == 0) {
-        *out = FLOATING_MODE_SOURCE_STDIN;
-    } else if (strcmp(value, "detect") == 0) {
-#if OPENCV_ENABLED
-        *out = FLOATING_MODE_SOURCE_DETECT;
-#else
-        LOG_ERR("Binary not build with OpenCV. 'detect' source not supported.");
-        return 2;
-#endif
-    } else {
-        LOG_ERR("Invalid source '%s'. Should be 'stdin' or 'detect'.", value);
-        return 1;
-    }
-
     return 0;
 }
 
@@ -364,14 +342,6 @@ struct section_def {
 
 #define G_FIELD(name, default_value, parse, free, desc) \
     FIELD(struct general_config, name, default_value, parse, free, desc)
-#define MT_FIELD(name, default_value, parse, free, desc) \
-    FIELD(struct mode_tile_config, name, default_value, parse, free, desc)
-#define MF_FIELD(name, default_value, parse, free, desc) \
-    FIELD(struct mode_floating_config, name, default_value, parse, free, desc)
-#define MB_FIELD(name, default_value, parse, free, desc) \
-    FIELD(struct mode_bisect_config, name, default_value, parse, free, desc)
-#define MS_FIELD(name, default_value, parse, free, desc) \
-    FIELD(struct mode_split_config, name, default_value, parse, free, desc)
 #define MC_FIELD(name, default_value, parse, free, desc) \
     FIELD(struct mode_click_config, name, default_value, parse, free, desc)
 #define MD_FIELD(name, default_value, parse, free, desc) \
@@ -386,172 +356,45 @@ static struct section_def section_defs[] = {
         general, "General configuration",
         G_FIELD(
             home_row_keys, "", parse_home_row_keys, free_home_row_keys,
-            "A string of exactly 11 characters, each representing a key.\n"
-            "The first 8 will be used to select sub-areas in bisect mode.\n"
-            "The last 3 will be used as left, right and middle click "
-            "respectively."
-        ),
-        G_FIELD(
-            modes, "tile,bisect", parse_str, free_str,
-            "Modes (tile, bisect, split or float) to use; will be chained."
+            "A string of exactly 11 characters, each representing a key."
         ),
         G_FIELD(
             cancellation_status_code, "0", parse_uint8, noop,
             "Status code to exit with when cancelled"
-        )
-    ),
-    SECTION(
-        mode_tile, "Configuration for tile mode",
-        MT_FIELD(
+        ),
+        G_FIELD(
             label_color, "#fffd", parse_color, noop,
             "Label color for selectable regions"
         ),
-        MT_FIELD(
+        G_FIELD(
             label_select_color, "#fd0d", parse_color, noop,
             "Label color for selected regions"
         ),
-        MT_FIELD(
+        G_FIELD(
             unselectable_bg_color, "#2226", parse_color, noop,
             "Background color for unselectable regions"
         ),
-        MT_FIELD(
-            selectable_bg_color, "#0304", parse_color, noop,
+        G_FIELD(
+            selectable_bg_color, "#1718", parse_color, noop,
             "Background color for selectable regions"
         ),
-        MT_FIELD(
+        G_FIELD(
             selectable_border_color, "#040c", parse_color, noop,
             "Border color for selectable regions"
         ),
-        MT_FIELD(
+        G_FIELD(
             label_font_family, "sans-serif", parse_str, free_str,
             "Font family for labels"
         ),
-        MT_FIELD(
-            label_font_size, "8 50% 100", parse_relative_font_size, noop,
+        G_FIELD(
+            label_font_size, "12 50% 100", parse_relative_font_size, noop,
             "Font size for labels, specified as `<min> <pct>% <max>`.\n"
             "The resulting font size is a percentage of the region height\n"
             "(specified by <pct>), bounded by <min> and <max>."
         ),
-        MT_FIELD(
+        G_FIELD(
             label_symbols, "abcdefghijklmnopqrstuvwxyz", parse_str, free_str,
             "Characters to use in labels"
-        )
-    ),
-    SECTION(
-        mode_floating, "Configuration for floating mode",
-        MF_FIELD(
-            source, "stdin", parse_floating_mode_source_value, noop,
-            "Source of selectable regions. Possible values:\n"
-            "* `detect` -- auto-detect regions with OpenCV\n"
-            "* `stdin` -- read region definitions from stdin"
-        ),
-        MF_FIELD(
-            label_color, "#fffd", parse_color, noop,
-            "Label color for selectable regions"
-        ),
-        MF_FIELD(
-            label_select_color, "#fd0d", parse_color, noop,
-            "Label color for selected regions"
-        ),
-        MF_FIELD(
-            unselectable_bg_color, "#2226", parse_color, noop,
-            "Background color for unselectable regions"
-        ),
-        MF_FIELD(
-            selectable_bg_color, "#1718", parse_color, noop,
-            "Background color for selectable regions"
-        ),
-        MF_FIELD(
-            selectable_border_color, "#040c", parse_color, noop,
-            "Border color for selectable regions"
-        ),
-        MF_FIELD(
-            label_font_family, "sans-serif", parse_str, free_str,
-            "Font family for labels"
-        ),
-        MF_FIELD(
-            label_font_size, "12 50% 100", parse_relative_font_size, noop,
-            "Font size for labels.\n"
-            "See mode_tile.label_font_size for a detailed description."
-        ),
-        MF_FIELD(
-            label_symbols, "abcdefghijklmnopqrstuvwxyz", parse_str, free_str,
-            "Characters to use in labels"
-        )
-    ),
-    SECTION(
-        mode_bisect, "Configuration for bisect mode",
-        MB_FIELD(
-            label_color, "#fffd", parse_color, noop,
-            "Label color for selectable regions"
-        ),
-        // TODO: we should set minimums for numbers.
-        MB_FIELD(
-            label_font_size, "20", parse_double, noop,
-            "Font size for labels. Note that a lower bound is applied "
-            "internally."
-        ),
-        MB_FIELD(
-            label_font_family, "sans-serif", parse_str, free_str,
-            "Font family for labels"
-        ),
-        MB_FIELD(
-            label_padding, "12", parse_double, noop,
-            "Spacing between a selectable region and its label.\n"
-            "Applicable when the region is smaller than the label."
-        ),
-        MB_FIELD(pointer_size, "20", parse_double, noop, "Pointer size"),
-        MB_FIELD(pointer_color, "#e22d", parse_color, noop, "Pointer color"),
-        MB_FIELD(
-            unselectable_bg_color, "#2226", parse_color, noop,
-            "Background color for unselectable regions"
-        ),
-        MB_FIELD(
-            even_area_bg_color, "#0304", parse_color, noop,
-            "Background color for even areas.\n"
-            "Odd/even areas are selectable areas with odd/even indices,\n"
-            "when counting row-wise (or column-wise), starting from 0."
-        ),
-        MB_FIELD(
-            even_area_border_color, "#0408", parse_color, noop,
-            "Border color for even areas (see `even_area_bg_color`)"
-        ),
-        MB_FIELD(
-            odd_area_bg_color, "#0034", parse_color, noop,
-            "Background color for odd areas (see `even_area_bg_color`)"
-        ),
-        MB_FIELD(
-            odd_area_border_color, "#0048", parse_color, noop,
-            "Border color for odd areas (see `even_area_bg_color`)"
-        ),
-        MB_FIELD(
-            history_border_color, "#3339", parse_color, noop,
-            "Border color for selection hisory"
-        )
-    ),
-    SECTION(
-        mode_split, "Configuration for split mode",
-        MS_FIELD(pointer_size, "20", parse_double, noop, "Pointer size"),
-        MS_FIELD(pointer_color, "#e22d", parse_color, noop, "Pointer color"),
-        MS_FIELD(
-            bg_color, "#2226", parse_color, noop,
-            "Background color for unselectable area"
-        ),
-        MS_FIELD(
-            area_bg_color, "#11111188", parse_color, noop,
-            "Background color for selectable area"
-        ),
-        MS_FIELD(
-            vertical_color, "#8888ffcc", parse_color, noop,
-            "Color for vertical split marker"
-        ),
-        MS_FIELD(
-            horizontal_color, "#008800cc", parse_color, noop,
-            "Color for horizontal split marker"
-        ),
-        MS_FIELD(
-            history_border_color, "#3339", parse_color, noop,
-            "Border color for selection history"
         )
     ),
     SECTION(
@@ -585,9 +428,9 @@ void print_comment(char *comment) {
 }
 
 void print_default_config() {
-    puts("# wl-kbptr can be configured with a configuration file.");
+    puts("# pointerless can be configured with a configuration file.");
     puts("# The file location can be passed with the -c parameter.");
-    puts("# Othewise the `$XDG_CONFIG_HOME/wl-kbptr/config` file will");
+    puts("# Othewise the `$XDG_CONFIG_HOME/pointerless/config` file will");
     puts("# be loaded if it exists. Below is the default configuration.");
 
     for (int i = 0; i < sizeof(section_defs) / sizeof(section_defs[0]); i++) {
@@ -742,7 +585,7 @@ void config_free_values(struct config *config) {
     }
 }
 
-static const char *XDG_PATH_FMT = "%s/wl-kbptr/config";
+static const char *XDG_PATH_FMT = "%s/pointerless/config";
 
 static FILE *open_config_file(char *file_name) {
     FILE *f = NULL;
@@ -801,7 +644,7 @@ int config_loader_load_file(struct config_loader *loader, char *file_name) {
     char buf[256];
     int  c = 0, i, err;
 
-    for (int line; c != EOF; line++) {
+    while (c != EOF) {
         do {
             c = getc(f);
         } while (strchr(WHITE_SPACES, c) != NULL);

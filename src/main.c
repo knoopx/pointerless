@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "config.h"
+#include "floating.h"
 #include "fractional-scale-v1-client-protocol.h"
 #include "log.h"
-#include "mode.h"
 #include "state.h"
 #include "surface_buffer.h"
 #include "utils_wayland.h"
@@ -47,7 +47,7 @@ static void send_frame(struct state *state) {
     cairo_t *cairo = surface_buffer->cairo;
     cairo_identity_matrix(cairo);
     cairo_scale(cairo, scale_120 / 120.0, scale_120 / 120.0);
-    mode_render(state, cairo);
+    floating_render(state, cairo);
 
     wl_surface_set_buffer_scale(state->wl_surface, 1);
 
@@ -257,10 +257,8 @@ static void handle_keyboard_key(
     xkb_keysym_to_utf8(key_sym, text, sizeof(text));
 
     if (key_state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-        bool redraw = mode_handle_key(seat->state, key_sym, text);
-        if (has_last_mode_returned(seat->state)) {
-            seat->state->running = false;
-        } else if (redraw) {
+        bool redraw = floating_key(seat->state, key_sym, text);
+        if (redraw) {
             request_frame(seat->state);
         }
     }
@@ -419,30 +417,38 @@ static void load_xdg_outputs(struct state *state) {
     wl_display_roundtrip(state->wl_display);
 }
 
-static void enter_first_mode(struct state *state) {
-    if (state->current_mode == NO_MODE_ENTERED) {
-        if (!compute_initial_area(state, &state->initial_area)) {
-            state->running = false;
-            return;
-        }
+static void enter_floating(struct state *state) {
+    if (state->floating_entered) {
+        return;
+    }
+    state->floating_entered = true;
 
-        LOG_DEBUG(
-            "Initial area: %dx%d+%d+%d", state->initial_area.w,
-            state->initial_area.h, state->initial_area.x, state->initial_area.y
-        );
+    // Arm the configured click button before the user picks a target, so
+    // the confirmed selection moves the pointer and clicks (like the
+    // original's click mode).
+    state->click = state->config.mode_click.button;
 
-        LOG_DEBUG(
-            "Output: %s (position: %dx%d+%d+%d, transform: %d)",
-            state->current_output->name, state->current_output->width,
-            state->current_output->height, state->current_output->x,
-            state->current_output->y, state->current_output->transform
-        );
+    if (!compute_initial_area(state, &state->initial_area)) {
+        state->running = false;
+        return;
+    }
 
-        enter_next_mode(state, state->initial_area);
+    LOG_DEBUG(
+        "Initial area: %dx%d+%d+%d", state->initial_area.w,
+        state->initial_area.h, state->initial_area.x, state->initial_area.y
+    );
 
-        if (state->running) {
-            send_frame(state);
-        }
+    LOG_DEBUG(
+        "Output: %s (position: %dx%d+%d+%d, transform: %d)",
+        state->current_output->name, state->current_output->width,
+        state->current_output->height, state->current_output->x,
+        state->current_output->y, state->current_output->transform
+    );
+
+    floating_enter(state, state->initial_area);
+
+    if (state->running) {
+        send_frame(state);
     }
 }
 
@@ -455,7 +461,7 @@ static void handle_surface_enter(
     state->current_output = output;
 
     if (state->surface_configured) {
-        enter_first_mode(state);
+        enter_floating(state);
     }
 }
 
@@ -525,14 +531,12 @@ static void handle_registry_global(
         state->fractional_scale_mgr = wl_registry_bind(
             registry, name, &wp_fractional_scale_manager_v1_interface, 1
         );
-#if OPENCV_ENABLED
     } else if (
         strcmp(interface, zwlr_screencopy_manager_v1_interface.name) == 0
     ) {
         state->wl_screencopy_manager = wl_registry_bind(
             registry, name, &zwlr_screencopy_manager_v1_interface, 1
         );
-#endif
     }
 }
 
@@ -551,7 +555,7 @@ static void handle_layer_surface_configure(
     zwlr_layer_surface_v1_ack_configure(layer_surface, serial);
 
     if (state->current_output != NULL) {
-        enter_first_mode(state);
+        enter_floating(state);
     } else if (!state->surface_configured) {
         send_transparent_frame(state);
     }
@@ -613,7 +617,7 @@ static struct output *find_output_by_name(struct state *state, char *name) {
 }
 
 static void print_result(struct state *state) {
-    char click;
+    char click = 'n'; // CLICK_NONE
     switch (state->click) {
     case CLICK_LEFT_BTN:
         click = 'l';
@@ -638,7 +642,7 @@ static void print_result(struct state *state) {
     );
 }
 static void print_usage() {
-    puts("wl-kbptr [OPTION...]\n");
+    puts("pointerless [OPTION...]\n");
 
     puts(" -h, --help          show this help");
     puts(" --help-config       show help on configuration");
@@ -654,10 +658,7 @@ static void print_usage() {
 }
 
 static void print_version() {
-    printf("wl-kbptr %s", VERSION);
-#if OPENCV_ENABLED
-    printf(" (opencv)");
-#endif
+    printf("pointerless %s", VERSION);
     puts("");
 }
 
@@ -672,9 +673,7 @@ int main(int argc, char **argv) {
         .wl_surface_callback = NULL,
         .wl_layer_surface    = NULL,
         .surface_configured  = false,
-#if OPENCV_ENABLED
         .wl_screencopy_manager = NULL,
-#endif
         .wp_viewporter        = NULL,
         .fractional_scale_mgr = NULL,
         .running              = true,
@@ -687,6 +686,7 @@ int main(int argc, char **argv) {
         .drag_start_x = 0,
         .drag_start_y = 0,
         .drag_phase   = 0,
+        .floating_entered = false,
     };
 
     config_set_default(&state.config);
@@ -795,11 +795,6 @@ int main(int argc, char **argv) {
 
     if (state.config.general.home_row_keys != NULL) {
         state.home_row = state.config.general.home_row_keys;
-    }
-
-    if (load_modes(&state, state.config.general.modes) != 0) {
-        LOG_ERR("Could not load modes.");
-        return 1;
     }
 
     wl_list_init(&state.outputs);
@@ -974,16 +969,14 @@ int main(int argc, char **argv) {
     wl_registry_destroy(state.wl_registry);
     zwlr_layer_shell_v1_destroy(state.wl_layer_shell);
 
-#if OPENCV_ENABLED
     if (state.wl_screencopy_manager) {
         zwlr_screencopy_manager_v1_destroy(state.wl_screencopy_manager);
     }
-#endif
 
     wl_display_disconnect(state.wl_display);
 
     config_free_values(&state.config);
-    free_mode_states(&state);
+    floating_free(&state);
 
 #if DEBUG
     cairo_debug_reset_static_data();

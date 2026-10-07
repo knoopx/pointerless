@@ -1,5 +1,5 @@
 project(
-  'wl-kbptr',
+  'pointerless',
   'c',
   meson_version: '>=1.1',
   default_options: ['c_std=c11'],
@@ -7,7 +7,8 @@ project(
   version: '0.4.1',
 )
 
-use_opencv = get_option('opencv').enabled()
+add_languages('cpp', native: false)
+
 version_suffix = ''
 
 if get_option('buildtype') == 'debug'
@@ -16,19 +17,18 @@ if get_option('buildtype') == 'debug'
 endif
 
 add_project_arguments(
-  '-D_GNU_SOURCE=200809L',
   '-DVERSION="@0@@1@"'.format(meson.project_version(), version_suffix),
-  language: 'c',
+  # The NCNN model files are installed with the package; the detector loads
+  # them from this compile-time location at runtime.
+  '-DGUIDETECT_MODEL_DIR="@0@"'.format(get_option('prefix') / get_option('datadir') / 'pointerless'),
+  language: ['c', 'cpp'],
 )
 
-cc = meson.get_compiler('c')
+# C only: libstdc++ already defines _GNU_SOURCE for C++, and redefining it
+# on the command line triggers a redefinition warning in guidetect.cpp.
+add_project_arguments('-D_GNU_SOURCE=200809L', language: 'c')
 
-if use_opencv
-  add_project_arguments('-DOPENCV_ENABLED=1', language: ['c', 'cpp'])
-  add_languages('cpp', native: false)
-  opencv = dependency('opencv4', 'opencv5')
-  pixman = dependency('pixman-1')
-endif
+cc = meson.get_compiler('c')
 
 wayland_client = dependency('wayland-client')
 wayland_protos = dependency('wayland-protocols')
@@ -45,15 +45,25 @@ dependencies = [
   math,
 ]
 
+# NCNN is provided by the system (the Nix flake devShell ships the nixpkgs
+# ncnn package); the build never bundles a vendored copy.
+ncnn_dep = dependency('ncnn')
+
+# The system NCNN installs its public headers under `<prefix>/include/ncnn/`
+# while pkg-config only adds `<prefix>/include`, so the flat includes in the
+# sources (`<layer.h>`, `<mat.h>`, ...) need the `ncnn/` subdirectory added.
+ncnn_incdir = ncnn_dep.get_variable(pkgconfig: 'includedir')
+dependencies += [
+  ncnn_dep,
+  declare_dependency(include_directories: include_directories(ncnn_incdir / 'ncnn')),
+]
+
 sources = [
   'src/main.c',
   'src/surface_buffer.c',
-  'src/mode.c',
-  'src/mode_tile.c',
-  'src/mode_floating.c',
-  'src/mode_bisect.c',
-  'src/mode_split.c',
-  'src/mode_click.c',
+  'src/floating.c',
+  'src/guidetect.cpp',
+  'src/screencopy.c',
   'src/utils.c',
   'src/utils_cairo.c',
   'src/utils_wayland.c',
@@ -62,16 +72,8 @@ sources = [
   protos_src,
 ]
 
-if use_opencv
-  sources += [
-    'src/screencopy.c',
-    'src/target_detection.cpp',
-  ]
-  dependencies += [opencv, pixman]
-endif
-
 executable(
-  'wl-kbptr',
+  'pointerless',
   sources,
   dependencies: dependencies,
   install: true,
@@ -89,7 +91,19 @@ label_test_exec = executable(
 test('test_label', label_test_exec)
 
 install_data(
-  'share/wl-kbptr.desktop',
-  rename: 'wl-kbptr.desktop',
+  'share/pointerless.desktop',
+  rename: 'pointerless.desktop',
   install_dir: 'share/applications',
+)
+
+# Bundle the NCNN model files with the package (the datadir `pointerless`
+# directory matches the compile-time `GUIDETECT_MODEL_DIR`).
+install_data(
+  'share/pointerless/model.ncnn.param',
+  install_dir: get_option('datadir') / 'pointerless',
+)
+
+install_data(
+  'share/pointerless/model.ncnn.bin',
+  install_dir: get_option('datadir') / 'pointerless',
 )

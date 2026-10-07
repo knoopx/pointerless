@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-#if OPENCV_ENABLED
-
 #include "screencopy.h"
 
 #include "log.h"
@@ -157,4 +155,3 @@ query_screenshot(struct state *state, struct rect region) {
     return scrcpy_state.scrcpy_buffer;
 }
 
-#endif

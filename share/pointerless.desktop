@@ -1,0 +1,7 @@
+[Desktop Entry]
+Version=1.0
+Name=Pointerless
+Comment=Control the mouse pointer with the keyboard
+Exec=pointerless
+Terminal=false
+Type=Application

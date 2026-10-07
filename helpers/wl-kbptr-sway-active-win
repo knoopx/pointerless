@@ -1,6 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: GPL-3.0-only
-
-active_area=$(swaymsg -t get_tree | jq --raw-output \
-	'.. | (.nodes? + .floating_nodes? // empty)[] | select (.focused) | .rect | "\(.width)x\(.height)+\(.x)+\(.y)"')
-wl-kbptr --restrict "$active_area" $@
